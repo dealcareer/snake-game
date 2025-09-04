@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Snake Game — Welcome to our Small development , Enjoy the Ride-Chandra Prakash Sahagal</title>
+<style>
+  :root{ --bg:#071022; --panel:#0b1220; --accent:#10b981; --muted:#94a3b8 }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#031124,#071022); color:#e6eef8; display:flex; align-items:center; justify-content:center; min-height:100vh}
+  .wrap{width:100%;max-width:960px;padding:18px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  h1{margin:0;color:var(--accent);font-size:20px}
+  .controls{display:flex;gap:8px;align-items:center}
+  button{background:#0f172a;border:1px solid #1f2a36;padding:8px 12px;border-radius:10px;color:#e6eef8;cursor:pointer}
+  button.primary{background:var(--accent);color:#071022;border:0}
+  .board-wrap{background:linear-gradient(180deg,#071827,#071022);padding:12px;border-radius:12px;display:flex;gap:12px}
+  canvas{background:#071a1f;border-radius:8px;display:block}
+  .info{min-width:200px;padding:12px;border-radius:8px;background:#071227;border:1px solid #112233}
+  .info div{margin-bottom:10px}
+  .small{font-size:13px;color:var(--muted)}
+  .mobile-ops{display:none;margin-top:10px;gap:8px;justify-content:center}
+  @media (max-width:820px){ .board-wrap{flex-direction:column;align-items:center} .mobile-ops{display:flex} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🐍 Snake Game — Classic</h1>
+    <div class="controls">
+      <button id="pauseBtn">Pause</button>
+      <button id="restartBtn" class="primary">Restart</button>
+    </div>
+  </header>
+
+  <div class="board-wrap">
+    <div>
+      <canvas id="game" width="640" height="480"></canvas>
+      <div class="mobile-ops">
+        <button id="left">◀</button>
+        <button id="up">▲</button>
+        <button id="down">▼</button>
+        <button id="right">▶</button>
+      </div>
+    </div>
+
+    <aside class="info">
+      <div>Score: <strong id="score">0</strong></div>
+      <div>High Score: <strong id="high">0</strong></div>
+      <div>Speed Level: <strong id="level">1</strong></div>
+      <div class="big">Alert: Welcome to our Small development , Enjoy the Ride-<b color="red">Chandra Prakash Sahagal</b>.</div>
+      <div class="small">Controls: Arrow keys / WASD / Swipe (mobile). Eat food to grow. Game speeds up over time.</div>
+      <hr style="border:none;border-top:1px solid #0b2330;margin:10px 0">
+      <div>
+        <button id="classicBtn">Classic Mode</button>
+        <button id="studyBtn">Study Fruit Mode</button>
+      </div>
+      <div class="small" style="margin-top:8px">In Study Fruit Mode a special fruit may open a short quiz for bonus points.</div>
+    </aside>
+  </div>
+</div>
+
+<!-- Quiz modal (used in Study mode) -->
+<div id="quizModal" style="display:none;position:fixed;inset:0;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);">
+  <div style="background:#071227;padding:16px;border-radius:10px;border:1px solid #253544;min-width:280px;color:#e6eef8">
+    <div id="qText" style="font-weight:700;margin-bottom:8px">Question</div>
+    <div id="qOpts" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <div style="margin-top:10px;display:flex;justify-content:flex-end"><button id="closeQuiz">Close</button></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const highEl = document.getElementById('high');
+  const levelEl = document.getElementById('level');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const restartBtn = document.getElementById('restartBtn');
+  const classicBtn = document.getElementById('classicBtn');
+  const studyBtn = document.getElementById('studyBtn');
+  const quizModal = document.getElementById('quizModal');
+  const qText = document.getElementById('qText');
+  const qOpts = document.getElementById('qOpts');
+  const closeQuiz = document.getElementById('closeQuiz');
+
+  const COLS = 32, ROWS = 24; // grid
+  const cellW = Math.floor(canvas.width / COLS); const cellH = Math.floor(canvas.height / ROWS);
+
+  let high = parseInt(localStorage.getItem('snake_high')||'0',10);
+  highEl.textContent = high;
+
+  // game state
+  let state = {
+    snake: [{x:8,y:12},{x:7,y:12},{x:6,y:12}],
+    dir: {x:1,y:0}, nextDir:null,
+    food: null, specialFood: null, score:0, speed:8, tick:0, running:true, mode:'classic'
+  };
+
+  const quizBank = [ {q:'2 × 6 = ?', opts:['12','14','16'], a:0}, {q:'Capital of India?', opts:['Kolkata','New Delhi','Mumbai'], a:1}, {q:'5 + 4 = ?', opts:['11','9','8'], a:1} ];
+
+  function placeFood(){
+    function randomPos(){ return { x: Math.floor(Math.random()*COLS), y: Math.floor(Math.random()*ROWS) } }
+    let p = randomPos(); while(isOnSnake(p)) p = randomPos(); state.food = p;
+    // chance for special
+    if(state.mode==='study' && Math.random() < 0.12){ let s = randomPos(); while(isOnSnake(s) || (s.x===p.x && s.y===p.y)) s = randomPos(); state.specialFood = s; } else state.specialFood = null;
+  }
+
+  function isOnSnake(p){ return state.snake.some(s=>s.x===p.x && s.y===p.y) }
+
+  function reset(){ state.snake = [{x:8,y:12},{x:7,y:12},{x:6,y:12}]; state.dir={x:1,y:0}; state.nextDir=null; state.score=0; state.speed=8; state.running=true; placeFood(); updateUI(); }
+
+  function updateUI(){ scoreEl.textContent = state.score; levelEl.textContent = Math.floor(state.speed/4); }
+
+  function step(){ if(!state.running) return; state.tick++; if(state.tick < 60 / state.speed) return; state.tick=0;
+    // move snake
+    if(state.nextDir){ state.dir = state.nextDir; state.nextDir = null }
+    const head = { x: state.snake[0].x + state.dir.x, y: state.snake[0].y + state.dir.y };
+    // wrap-around
+    if(head.x < 0) head.x = COLS-1; if(head.x >= COLS) head.x = 0; if(head.y < 0) head.y = ROWS-1; if(head.y >= ROWS) head.y = 0;
+
+    // self collision
+    if(isOnSnake(head)) { state.running = false; gameOver(); return; }
+
+    state.snake.unshift(head);
+
+    // eat food
+    if(state.food && head.x===state.food.x && head.y===state.food.y){ state.score += 10; placeFood(); state.speed += 0.3; }
+    else if(state.specialFood && head.x===state.specialFood.x && head.y===state.specialFood.y){ // special
+      openQuiz(); state.specialFood = null; // growth happens if correct
+    } else { state.snake.pop(); }
+
+    updateUI();
+  }
+
+  function gameOver(){ if(state.score > high){ high = state.score; localStorage.setItem('snake_high', String(high)); highEl.textContent = high; } setTimeout(()=>{ alert('Game Over! Score: '+state.score); }, 50); }
+
+  function render(){ // clear
+    ctx.fillStyle = '#071a1f'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    // draw grid (subtle)
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)'; ctx.lineWidth = 1;
+    for(let i=0;i<=COLS;i++){ ctx.beginPath(); ctx.moveTo(i*cellW,0); ctx.lineTo(i*cellW,canvas.height); ctx.stroke(); }
+    for(let j=0;j<=ROWS;j++){ ctx.beginPath(); ctx.moveTo(0,j*cellH); ctx.lineTo(canvas.width,j*cellH); ctx.stroke(); }
+
+    // draw food
+    if(state.food){ ctx.fillStyle = '#f97316'; ctx.fillRect(state.food.x*cellW+2, state.food.y*cellH+2, cellW-4, cellH-4); }
+    if(state.specialFood){ ctx.fillStyle = '#60a5fa'; ctx.fillRect(state.specialFood.x*cellW+4, state.specialFood.y*cellH+4, cellW-8, cellH-8); }
+
+    // draw snake
+    state.snake.forEach((s,i)=>{
+      ctx.fillStyle = i===0 ? '#10b981' : '#065f46'; ctx.fillRect(s.x*cellW+2, s.y*cellH+2, cellW-4, cellH-4);
+    });
+  }
+
+  function loop(){ step(); render(); requestAnimationFrame(loop); }
+
+  // controls
+  document.addEventListener('keydown', e=>{
+    if(e.key === 'ArrowUp' || e.key==='w'){ setDir(0,-1) }
+    if(e.key === 'ArrowDown' || e.key==='s'){ setDir(0,1) }
+    if(e.key === 'ArrowLeft' || e.key==='a'){ setDir(-1,0) }
+    if(e.key === 'ArrowRight' || e.key==='d'){ setDir(1,0) }
+    if(e.key===' '){ state.running = !state.running }
+  });
+
+  function setDir(x,y){ // prevent reverse
+    if(state.dir.x === -x && state.dir.y === -y) return; state.nextDir = {x,y}; }
+
+  // mobile buttons
+  ['left','up','down','right'].forEach(id=>{ const el = document.getElementById(id); if(el) el.addEventListener('click', ()=>{ if(id==='left') setDir(-1,0); if(id==='right') setDir(1,0); if(id==='up') setDir(0,-1); if(id==='down') setDir(0,1); }) });
+
+  // swipe support
+  let sx=null, sy=null; canvas.addEventListener('touchstart', e=>{ const t=e.touches[0]; sx=t.clientX; sy=t.clientY; });
+  canvas.addEventListener('touchend', e=>{ if(!sx) return; const t=e.changedTouches[0]; const dx=t.clientX - sx; const dy=t.clientY - sy; if(Math.abs(dx) > Math.abs(dy)){ if(dx>30) setDir(1,0); else if(dx<-30) setDir(-1,0); } else { if(dy>30) setDir(0,1); else if(dy<-30) setDir(0,-1); } sx=null; sy=null; });
+
+  pauseBtn.addEventListener('click', ()=>{ state.running = !state.running; pauseBtn.textContent = state.running? 'Pause' : 'Resume'; });
+  restartBtn.addEventListener('click', ()=>{ reset(); });
+  classicBtn.addEventListener('click', ()=>{ state.mode='classic'; classicBtn.disabled=true; studyBtn.disabled=false; placeFood(); });
+  studyBtn.addEventListener('click', ()=>{ state.mode='study'; classicBtn.disabled=false; studyBtn.disabled=true; placeFood(); });
+  studyBtn.disabled = false; classicBtn.disabled = true; // default classic
+
+  // quiz
+  function openQuiz(){ state.running = false; quizModal.style.display='flex'; const q = quizBank[Math.floor(Math.random()*quizBank.length)]; qText.textContent = q.q; qOpts.innerHTML = ''; q.opts.forEach((opt,i)=>{ const b = document.createElement('button'); b.textContent = opt; b.style.margin='6px'; b.addEventListener('click', ()=>{ if(i===q.a){ state.score += 30; // reward + grow snake
+        const tail = state.snake[state.snake.length-1]; state.snake.push({ x: tail.x- state.dir.x, y: tail.y - state.dir.y }); }
+        quizModal.style.display='none'; state.running = true; updateUI(); }); qOpts.appendChild(b); }); }
+  closeQuiz.addEventListener('click', ()=>{ quizModal.style.display='none'; state.running = true; });
+
+  // init
+  reset(); requestAnimationFrame(loop);
+
+})();
+
+/* ======= Common Reward Function ======= */
+function rewardPlayer(game, score) {
+    let coins = parseInt(localStorage.getItem(`coins_${game}`) || '0');
+    let badges = parseInt(localStorage.getItem(`badges_${game}`) || '0');
+
+    // Coin & Badge calculation
+    let coinsEarned = 0, badgesEarned = 0;
+    if(score >= 100){ coinsEarned = 20; badgesEarned = 2; }
+    else if(score >= 50){ coinsEarned = 10; badgesEarned = 1; }
+    else { coinsEarned = 5; badgesEarned = 0; }
+
+    // Update localStorage
+    coins += coinsEarned;
+    badges += badgesEarned;
+    localStorage.setItem(`coins_${game}`, coins);
+    localStorage.setItem(`badges_${game}`, badges);
+
+    // Update Dashboard popup if open
+    let stats = document.getElementById(`stats-${game}`);
+    if(stats) stats.innerHTML = `Score: ${score}<br>Coins: <span class='coin'>${coins}</span><br>Badges: <span class='badge'>${badges}</span>`;
+
+    alert(`🏆 You earned ${coinsEarned} Coins & ${badgesEarned} Badges!`);
+}
+
+/* ======= Integration for each Game ======= */
+
+
+
+// 5️⃣ Snake Game
+function finishSnake(score){
+    // existing finish logic
+    rewardPlayer('snake', score);
+}
+
+</script>
+</body>
+</html>
